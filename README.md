@@ -33,7 +33,7 @@ cd infomentor-digest
 sudo ./setup.sh
 ```
 
-The script builds a virtual environment, installs Chromium, asks what the digest needs, writes `.env`, sends a test message, and starts a systemd service that keeps reporting. Run it without `sudo` to skip the service and report by hand. Run it again whenever you like: it keeps the `.env` you already have.
+The script builds a virtual environment, installs Chromium, asks what the digest needs, writes `.env`, sends a test message, and starts a systemd service that keeps reporting. Run it without `sudo` to skip the service and report by hand.
 
 You need Python 3.12 or later, and:
 
@@ -55,6 +55,8 @@ Prefix the last three with `sudo` if you installed with `sudo`, which leaves `da
 
 `data/` holds the reported keys. A move that leaves it behind seeds the new copy, which then stays quiet for one cycle.
 
+To update, `git pull` and run `sudo ./setup.sh` again: it installs what the checkout now holds and restarts the service, keeping your `.env`.
+
 ## Settings
 
 `.env` holds them, `env.example` lists every one with its default, and an environment variable wins over the file. Edit `.env`, then `systemctl restart infomentor-digest` to pick it up.
@@ -63,14 +65,14 @@ Every channel you set up gets the digest and keeps its own reported keys. A chan
 
 ## Troubleshooting
 
-| Symptom                               | Cause                                                                                      |
-| ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Symptom                               | Cause                                                                                               |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `chat not found`                      | Telegram made your group a supergroup and the id changed. Put the new `TELEGRAM_CHAT_ID` in `.env`. |
-| Telegram accepts nothing              | Nobody wrote to the bot. A bot cannot open a chat itself.                                  |
-| Nothing arrives, and the log is quiet | The run seeded, or nothing changed. `run --dry-run --force` shows what is there.           |
-| The login fails                       | Check the password on infomentor.se. Only a username and password work, not BankID.        |
-| A file never arrives                  | Telegram takes a photo up to 10 MB and a document up to 50 MB.                             |
-| Chromium will not start                | Its system libraries are missing. Run `sudo ./setup.sh` on the machine itself.             |
+| Telegram accepts nothing              | Nobody wrote to the bot. A bot cannot open a chat itself.                                           |
+| Nothing arrives, and the log is quiet | The run seeded, or nothing changed. `run --dry-run --force` shows what is there.                    |
+| The login fails                       | Check the password on infomentor.se. Only a username and password work, not BankID.                 |
+| A file never arrives                  | Telegram takes a photo up to 10 MB and a document up to 50 MB.                                      |
+| Chromium will not start               | Its system libraries are missing. Run `sudo ./setup.sh` on the machine itself.                      |
 
 ## Licence
 

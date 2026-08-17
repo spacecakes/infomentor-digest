@@ -1,10 +1,11 @@
 #!/bin/sh
-# Set up the digest with one command. Run it with sudo to also install the
-# service that keeps it reporting.
+# Set up the digest from the checkout as it stands, and restart it. Run it with
+# sudo to also install the service that keeps it reporting.
 set -eu
 
 cd "$(dirname "$0")"
 root=$([ "$(id -u)" = 0 ] && echo yes || echo no)
+fresh=$([ -f .env ] && echo no || echo yes)
 
 python="${PYTHON:-python3}"
 "$python" -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null || {
@@ -14,7 +15,8 @@ python="${PYTHON:-python3}"
 
 [ -d .venv ] || "$python" -m venv .venv
 .venv/bin/pip install --quiet --upgrade pip
-.venv/bin/pip install --quiet .
+# Editable, so a pull needs no reinstall.
+.venv/bin/pip install --quiet --editable .
 
 # --with-deps adds the system libraries Chromium needs, and wants root.
 if [ "$(uname)" = Linux ] && [ "$root" = yes ]; then
@@ -24,7 +26,9 @@ else
 fi
 
 .venv/bin/infomentor-digest setup
-.venv/bin/infomentor-digest test-notify || true
+if [ "$fresh" = yes ]; then
+    .venv/bin/infomentor-digest test-notify || true
+fi
 
 echo
 if [ "$root" = yes ] && command -v systemctl >/dev/null; then
@@ -47,7 +51,8 @@ RestartSec=60
 WantedBy=multi-user.target
 UNIT
     systemctl daemon-reload
-    systemctl enable --now infomentor-digest
+    systemctl enable infomentor-digest
+    systemctl restart infomentor-digest
     echo "Reporting as a service. Read the log with:"
     echo "  journalctl -u infomentor-digest -f"
 else
