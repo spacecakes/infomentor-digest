@@ -2,16 +2,29 @@
 
 from collections.abc import Iterable
 from datetime import date
+from enum import StrEnum
 
 from .api import Attachment, File, Hub
 from .config import Settings
-from .digest import PupilDigest, collect, headline, render, unseen
+from .digest import PupilDigest, collect, headline, render, sample, unseen
 from .notify import Channel, channels, ensure_delivered, offer
 from .portal import login
 from .state import Store
 
 
-def run(settings: Settings, today: date, *, force: bool = False, dry_run: bool = False) -> str:
+class Scope(StrEnum):
+    """How much of what InfoMentor holds one run reports."""
+
+    NEW = "new"
+    SAMPLE = "sample"
+
+    @property
+    def remembers(self) -> bool:
+        """A test send must leave the facts unreported, so the real digest still brings them."""
+        return self is Scope.NEW
+
+
+def run(settings: Settings, today: date, *, scope: Scope = Scope.NEW, dry_run: bool = False) -> str:
     """Return the text that was reported, empty when there was nothing new.
 
     Every channel keeps its own reported keys, so a channel that failed is
@@ -27,10 +40,10 @@ def run(settings: Settings, today: date, *, force: bool = False, dry_run: bool =
         facts = [collect(hub, pupil, today, settings.days_ahead) for pupil in hub.pupils()]
         if dry_run:
             return render(
-                [_new(digest, store.keys_anywhere(digest.pupil.id), force) for digest in facts]
+                [_take(digest, store.keys_anywhere(digest.pupil.id), scope) for digest in facts]
             )
 
-        plans = [(channel, _plan(store, channel.name, facts, force)) for channel in targets]
+        plans = [(channel, _plan(store, channel.name, facts, scope)) for channel in targets]
         downloads = _download(hub, [plan for _, plan in plans])
 
     accepted: list[bool] = []
@@ -43,8 +56,9 @@ def run(settings: Settings, today: date, *, force: bool = False, dry_run: bool =
         accepted.append(took)
         if not took:
             continue
-        for digest in plan:
-            store.add(channel.name, digest.pupil.id, digest.keys)
+        if scope.remembers:
+            for digest in plan:
+                store.add(channel.name, digest.pupil.id, digest.keys)
         reported = text
 
     store.save()
@@ -57,21 +71,21 @@ def outcome(text: str) -> str:
     return text or "nothing new"
 
 
-def _plan(store: Store, channel: str, facts: list[PupilDigest], force: bool) -> list[PupilDigest]:
-    """What this channel has not reported. A child it never reported is seeded instead."""
+def _plan(store: Store, channel: str, facts: list[PupilDigest], scope: Scope) -> list[PupilDigest]:
+    """What this channel reports. A child it never reported is seeded instead."""
     plan: list[PupilDigest] = []
     for digest in facts:
-        if not force and not store.knows(channel, digest.pupil.id):
+        if scope is Scope.NEW and not store.knows(channel, digest.pupil.id):
             store.add(channel, digest.pupil.id, digest.keys)
             print(f"{channel}: seeded {digest.pupil.first_name} with {len(digest.keys)} facts")
             continue
-        plan.append(_new(digest, store.keys(channel, digest.pupil.id), force))
+        plan.append(_take(digest, store.keys(channel, digest.pupil.id), scope))
     return plan
 
 
-def _new(digest: PupilDigest, reported: set[str], force: bool) -> PupilDigest:
-    """The facts left to report. Force treats every one of them as unreported."""
-    return unseen(digest, set() if force else reported)
+def _take(digest: PupilDigest, reported: set[str], scope: Scope) -> PupilDigest:
+    """The facts of one child this scope reports."""
+    return sample(digest) if scope is Scope.SAMPLE else unseen(digest, reported)
 
 
 def _download(hub: Hub, plans: Iterable[list[PupilDigest]]) -> dict[str, File]:

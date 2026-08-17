@@ -190,11 +190,17 @@ class Hub:
         )
 
     def fetch(self, attachment: Attachment) -> File | None:
-        """Download a file so it can be sent. A link would ask the reader to log in."""
+        """Download a file so it can be sent. A link would ask the reader to log in.
+
+        A nameless or empty file is no file: Telegram refuses both.
+        """
+        if not attachment.path or not attachment.filename:
+            return None
         response = self.page.context.request.get(f"{BASE}{attachment.path}")
         if not response.ok:
             return None
-        return File(name=attachment.filename, content=response.body())
+        content = response.body()
+        return File(name=attachment.filename, content=content) if content else None
 
     def _get(self, path: str) -> object:
         return _read(self.page.context.request.get(f"{BASE}{path}"))

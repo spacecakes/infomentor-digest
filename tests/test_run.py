@@ -10,10 +10,10 @@ import pytest
 from fake import FakeSource
 
 from infomentor_digest import run as run_module
-from infomentor_digest.api import Attachment, File, NewsItem, Pupil
+from infomentor_digest.api import Attachment, Day, File, NewsItem, Pupil
 from infomentor_digest.config import Settings
 from infomentor_digest.notify import Channel
-from infomentor_digest.run import run
+from infomentor_digest.run import Scope, run
 from infomentor_digest.state import Store
 
 TODAY = date(2025, 8, 17)
@@ -89,6 +89,17 @@ def attachment(name: str) -> Attachment:
     return Attachment.model_validate({"title": name, "url": f"/Download/{name}"})
 
 
+def known(
+    settings: Settings, pupils: Sequence[Pupil], channels: Sequence[str] = ("telegram",)
+) -> None:
+    """Note these children as reported before, so the run reports them instead of seeding."""
+    store = Store.load(settings.state_file)
+    for channel in channels:
+        for pupil in pupils:
+            store.add(channel, pupil.id, set())
+    store.save()
+
+
 def test_the_first_run_seeds_and_sends_nothing(
     monkeypatch: pytest.MonkeyPatch, settings: Settings, sent: list[Message]
 ) -> None:
@@ -126,17 +137,35 @@ def test_a_run_with_nothing_new_sends_nothing(
     assert sent == []
 
 
-def test_force_reports_a_reported_fact(
+def test_a_sample_sends_one_fact_per_section_and_remembers_none(
     monkeypatch: pytest.MonkeyPatch, settings: Settings, sent: list[Message]
 ) -> None:
-    hub = FakeHub(children=[ALVA], news_items=[news(1, "Veckobrev")])
-    use(monkeypatch, hub)
-    run(settings, TODAY)
+    """A test send must read like a digest without spending the news it holds."""
+    use(
+        monkeypatch,
+        FakeHub(
+            children=[ALVA],
+            news_items=[news(1, "Måndagsbrev"), news(2, "Fredagsbrev", [attachment("brev.pdf")])],
+            registration_days=[
+                Day.model_validate({"date": "2025-08-18", "canEdit": True}),
+                Day.model_validate({"date": "2025-08-19", "canEdit": True}),
+            ],
+        ),
+    )
 
-    text = run(settings, TODAY, force=True)
+    text = run(settings, TODAY, scope=Scope.SAMPLE)
 
-    assert "Veckobrev" in text
-    assert sent == [("InfoMentor sön 17 aug · Alva 1", text, [])]
+    ((_, body, files),) = sent
+    assert body == text
+    assert text.count("•") == 2, "one line under Att göra, one under Nytt"
+    assert "mån 18 aug: tider saknas" in text
+    assert "tis 19 aug" not in text
+    assert "Fredagsbrev" in text, "the fact carrying a file wins its section"
+    assert "Måndagsbrev" not in text
+    assert [file.name for file in files] == ["brev.pdf"]
+    assert Store.load(settings.state_file).keys("telegram", ALVA.id) == set(), (
+        "the real digest must still bring these facts"
+    )
 
 
 def test_a_dry_run_prints_without_sending_or_remembering(
@@ -144,7 +173,7 @@ def test_a_dry_run_prints_without_sending_or_remembering(
 ) -> None:
     use(monkeypatch, FakeHub(children=[ALVA], news_items=[news(1, "Veckobrev")]))
 
-    text = run(settings, TODAY, force=True, dry_run=True)
+    text = run(settings, TODAY, dry_run=True)
 
     assert "Veckobrev" in text
     assert sent == []
@@ -171,8 +200,9 @@ def test_the_files_of_a_reported_fact_travel_with_the_digest(
     """A link would ask the reader to log in, so the bytes are sent instead."""
     hub = FakeHub(children=[ALVA], news_items=[news(1, "Veckobrev", [attachment("brev.pdf")])])
     use(monkeypatch, hub)
+    known(settings, [ALVA])
 
-    run(settings, TODAY, force=True)
+    run(settings, TODAY)
 
     ((_, _, files),) = sent
     assert [file.name for file in files] == ["brev.pdf"]
@@ -188,8 +218,9 @@ def test_a_file_both_children_have_travels_once(
         children=[ALVA, noah], news_items=[news(1, "Veckobrev", [attachment("brev.pdf")])]
     )
     use(monkeypatch, hub)
+    known(settings, [ALVA, noah])
 
-    run(settings, TODAY, force=True)
+    run(settings, TODAY)
 
     ((_, _, files),) = sent
     assert [file.name for file in files] == ["brev.pdf"]
@@ -205,8 +236,9 @@ def test_a_file_the_hub_refuses_is_left_out(
         refused={"/Download/borta.pdf"},
     )
     use(monkeypatch, hub)
+    known(settings, [ALVA])
 
-    text = run(settings, TODAY, force=True)
+    text = run(settings, TODAY)
 
     ((_, _, files),) = sent
     assert [file.name for file in files] == ["brev.pdf"]
@@ -219,7 +251,7 @@ def test_a_dry_run_downloads_nothing(
     hub = FakeHub(children=[ALVA], news_items=[news(1, "Veckobrev", [attachment("brev.pdf")])])
     use(monkeypatch, hub)
 
-    run(settings, TODAY, force=True, dry_run=True)
+    run(settings, TODAY, dry_run=True)
 
     assert hub.fetched == []
     assert sent == []
@@ -250,8 +282,9 @@ def test_every_channel_gets_the_same_digest(
     use_channels(monkeypatch, telegram, mail)
     hub = FakeHub(children=[ALVA], news_items=[news(1, "Veckobrev", [attachment("brev.pdf")])])
     use(monkeypatch, hub)
+    known(settings, [ALVA], ["telegram", "mail"])
 
-    run(settings, TODAY, force=True)
+    run(settings, TODAY)
 
     assert telegram.messages == mail.messages
     assert hub.fetched == ["/Download/brev.pdf"], "one download serves both channels"

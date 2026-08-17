@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Self
 
+import httpx
 import pytest
 
 from infomentor_digest import notify as notify_module
@@ -8,7 +9,8 @@ from infomentor_digest.api import File
 from infomentor_digest.config import Settings
 from infomentor_digest.notify import PHOTO_BYTES, send, split
 
-TELEGRAM = {"telegram_bot_token": "token", "telegram_chat_id": "42"}
+BOT_TOKEN = "8835574256:AAsecret"
+TELEGRAM = {"telegram_bot_token": BOT_TOKEN, "telegram_chat_id": "42"}
 MAIL = {"smtp_host": "relay", "mail_to": "me@example.com"}
 
 
@@ -32,15 +34,29 @@ class Call:
 
 
 @dataclass
+class FakeAnswer:
+    status_code: int = 200
+    payload: dict[str, Any] = field(default_factory=lambda: {"ok": True})
+    text: str = ""
+
+    @property
+    def is_error(self) -> bool:
+        return self.status_code >= 400
+
+    def json(self) -> dict[str, Any]:
+        return self.payload
+
+
+@dataclass
 class FakeTelegram:
     calls: list[Call] = field(default_factory=list)
+    refuses: dict[str, FakeAnswer] = field(default_factory=dict)
+    """What the bot API answers for a method, when it is not the plain 200."""
 
-    def post(self, url: str, **kwargs: Any) -> "FakeTelegram":
-        self.calls.append(Call(url=url, data=kwargs["data"], files=kwargs.get("files")))
-        return self
-
-    def raise_for_status(self) -> None:
-        return None
+    def post(self, url: str, **kwargs: Any) -> FakeAnswer:
+        call = Call(url=url, data=kwargs["data"], files=kwargs.get("files"))
+        self.calls.append(call)
+        return self.refuses.get(call.method, FakeAnswer())
 
 
 @pytest.fixture
@@ -139,6 +155,48 @@ def test_a_file_of_unknown_type_still_goes_out(settings: Settings, telegram: Fak
     send(settings, "InfoMentor", "Hej", [File(name="bilaga", content=b"?")])
 
     assert telegram.calls[1].files == {"document": ("bilaga", b"?", "application/octet-stream")}
+
+
+def test_a_file_telegram_refuses_names_the_reason_and_the_rest_still_go(
+    settings: Settings, telegram: FakeTelegram, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One bad attachment must not cost the reader the others, nor leak the bot token."""
+    telegram.refuses = {
+        "sendDocument": FakeAnswer(
+            status_code=400, payload={"description": "file must be non-empty"}
+        )
+    }
+
+    send(
+        settings,
+        "InfoMentor",
+        "Hej",
+        [File(name="brev.pdf", content=b"%PDF"), File(name="bild.jpg", content=b"jpeg")],
+    )
+
+    logged = capsys.readouterr().err
+    assert "telegram left out brev.pdf" in logged
+    assert "sendDocument answered 400: file must be non-empty" in logged
+    assert BOT_TOKEN not in logged
+    assert telegram.calls[-1].method == "sendPhoto", "the photo after it went out"
+
+
+def test_a_telegram_outage_keeps_the_token_out_of_the_log(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """httpx names the URL it could not reach, and the URL holds the token."""
+
+    def unreachable(url: str, **_: Any) -> None:
+        raise httpx.ConnectError(f"could not reach {url}")
+
+    monkeypatch.setattr(notify_module.httpx, "post", unreachable)
+
+    with pytest.raises(RuntimeError, match="every channel failed"):
+        send(configured(**TELEGRAM), "InfoMentor", "Hej")
+
+    logged = capsys.readouterr().err
+    assert "ConnectError" in logged
+    assert BOT_TOKEN not in logged
 
 
 def test_without_a_channel_the_run_says_so() -> None:

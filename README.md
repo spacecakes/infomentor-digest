@@ -25,6 +25,8 @@ Every fact carries a key, and each channel remembers the keys it reported. A run
 
 The first run for a child records its keys and sends nothing — otherwise day one would send every news post of the term. **Expect silence after you start it.** The first digest comes with the first change.
 
+To start over, delete `data/reported.json`. The run after that is as quiet as day one.
+
 ## Install
 
 ```bash
@@ -45,14 +47,21 @@ Make the Telegram bot first: write to `@BotFather`, send `/newbot`, and keep the
 ## Running it
 
 ```bash
-journalctl -u infomentor-digest -f                     # watch the service
-.venv/bin/infomentor-digest run                        # report once
-.venv/bin/infomentor-digest run --dry-run --force      # print everything, send nothing
-.venv/bin/infomentor-digest test-notify                # check delivery
-.venv/bin/infomentor-digest forget                     # drop the reported facts and start over
+journalctl -u infomentor-digest -f       # watch the service
+.venv/bin/infomentor-digest run          # send what's new (if anything)
+.venv/bin/infomentor-digest test-notify  # check delivery
 ```
 
 To update, `git pull` and run `sudo ./setup.sh` again: it installs what the checkout now holds and restarts the service, keeping your `.env`.
+
+### Run modifiers
+
+| Flag        | Effect                                              |
+| ----------- | --------------------------------------------------- |
+| `--sample`  | send one fact per section and remember none of them |
+| `--dry-run` | print the digest instead of sending it              |
+
+`run --sample` is the test send: real facts, one line under each section, and an attachment where the section has one. It remembers nothing, so the facts it showed still arrive in the digest they belong to. Add `--dry-run` to read it on screen and send nothing.
 
 ## Settings
 
@@ -66,7 +75,7 @@ Every channel you set up gets the digest and keeps its own reported keys. A chan
 | ------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `chat not found`                      | Telegram made your group a supergroup and the id changed. Put the new `TELEGRAM_CHAT_ID` in `.env`. |
 | Telegram accepts nothing              | Nobody wrote to the bot. A bot cannot open a chat itself.                                           |
-| Nothing arrives, and the log is quiet | The run seeded, or nothing changed. `run --dry-run --force` shows what is there.                    |
+| Nothing arrives, and the log is quiet | The run seeded, or nothing changed. `run --sample` proves delivery works.                           |
 | The login fails                       | Check the password on infomentor.se. Only a username and password work, not BankID.                 |
 | A file never arrives                  | Telegram takes a photo up to 10 MB and a document up to 50 MB.                                      |
 | Chromium will not start               | Its system libraries are missing. Run `sudo ./setup.sh` on the machine itself.                      |

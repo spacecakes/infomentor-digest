@@ -101,10 +101,18 @@ def content_type(name: str) -> str:
 
 
 def _telegram(settings: Settings, subject: str, body: str, files: Sequence[File]) -> None:
+    """The text goes first, then the files.
+
+    One file Telegram will not take must not hold back the others, and must not
+    make the digest come again every evening: the text already names it.
+    """
     for part in split(f"{subject}\n\n{body}", TELEGRAM_LIMIT):
         _send_telegram(settings, part)
     for file in files:
-        _send_telegram_file(settings, file)
+        try:
+            _send_telegram_file(settings, file)
+        except RuntimeError as error:
+            print(f"telegram left out {file.name}: {error}", file=sys.stderr)
 
 
 def _send_telegram(settings: Settings, text: str) -> None:
@@ -138,13 +146,28 @@ def _call(
     data: dict[str, object],
     files: dict[str, tuple[str, bytes, str]] | None = None,
 ) -> None:
-    response = httpx.post(
-        telegram_url(settings.telegram_bot_token, method),
-        data=data,
-        files=files,
-        timeout=120,
-    )
-    response.raise_for_status()
+    """Call the bot API, and say what went wrong without the token the URL carries."""
+    token = settings.telegram_bot_token
+    try:
+        response = httpx.post(telegram_url(token, method), data=data, files=files, timeout=120)
+    except httpx.HTTPError as error:
+        raise RuntimeError(f"{method}: {_hide(f'{type(error).__name__} {error}', token)}") from None
+    if response.is_error:
+        raise RuntimeError(f"{method} answered {response.status_code}: {_told(response)}")
+
+
+def _told(response: httpx.Response) -> str:
+    """Telegram names the objection in the body. The status line says only 400."""
+    try:
+        described = response.json().get("description", "")
+    except ValueError:
+        described = ""
+    return str(described) or response.text[:200] or "no reason given"
+
+
+def _hide(text: str, token: str) -> str:
+    """The bot token is a password, and a log is read by more people than a digest."""
+    return text.replace(token, "…") if token else text
 
 
 def _mail(settings: Settings, subject: str, body: str, files: Sequence[File]) -> None:

@@ -103,6 +103,20 @@ def unseen(digest: PupilDigest, keys: set[str]) -> PupilDigest:
     return PupilDigest(pupil=digest.pupil, items=items)
 
 
+def sample(digest: PupilDigest) -> PupilDigest:
+    """One fact per section: shaped like a real digest, short enough to read.
+
+    A fact that carries an attachment wins its section, so a test send also
+    shows whether photos and documents arrive.
+    """
+    chosen: dict[Section, Item] = {}
+    for item in digest.items:
+        held = chosen.get(item.section)
+        if held is None or (item.files and not held.files):
+            chosen[item.section] = item
+    return PupilDigest(pupil=digest.pupil, items=list(chosen.values()))
+
+
 def headline(digests: list[PupilDigest], today: date) -> str:
     """The first line, which is all a phone notification shows."""
     counts = [f"{d.pupil.first_name} {len(d.items)}" for d in digests if d.items]

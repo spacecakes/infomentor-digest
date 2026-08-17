@@ -105,6 +105,22 @@ def test_fetch_gives_up_on_a_file_the_hub_refuses() -> None:
     assert hub.fetch(Attachment.model_validate({"title": "brev.pdf", "url": "/Download/1"})) is None
 
 
+def test_fetch_gives_up_on_an_empty_download() -> None:
+    """Telegram refuses a file of no bytes, and the refusal costs the whole digest."""
+    hub, _ = hub_answering(FakeResponse(ok=True, payload=b""))
+
+    assert hub.fetch(Attachment.model_validate({"title": "brev.pdf", "url": "/Download/1"})) is None
+
+
+@pytest.mark.parametrize("row", [{"title": "", "url": "/Download/1"}, {"title": "brev.pdf"}])
+def test_fetch_gives_up_on_an_attachment_the_payload_left_half_named(row: dict[str, str]) -> None:
+    """A file with no name, or no path to read it from, cannot be sent."""
+    hub, asked = hub_answering(FakeResponse(ok=True, payload=b"%PDF"))
+
+    assert hub.fetch(Attachment.model_validate(row)) is None
+    assert asked == [], "nothing is downloaded for a file that cannot be sent"
+
+
 def test_learnlog_reads_the_hub_payload() -> None:
     entry = LearnlogEntry.model_validate(
         {
