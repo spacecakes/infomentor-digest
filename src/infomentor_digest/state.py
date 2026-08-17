@@ -62,6 +62,17 @@ class Store:
         self.failure = ""
         return had
 
+    def forget(self) -> int:
+        """Drop the file and answer how many facts it held.
+
+        The next run finds no channel it knows, so it seeds and sends nothing.
+        """
+        counted = sum(len(keys) for pupils in self.reported.values() for keys in pupils.values())
+        self.path.unlink(missing_ok=True)
+        self.reported = {}
+        self.failure = ""
+        return counted
+
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {

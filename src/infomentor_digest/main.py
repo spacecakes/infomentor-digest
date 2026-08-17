@@ -9,18 +9,20 @@ from .notify import send
 from .run import outcome, run
 from .schedule import now, serve
 from .setup import setup
+from .state import Store
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="infomentor-digest")
     parser.add_argument(
         "command",
-        choices=("run", "schedule", "setup", "discover", "test-notify"),
+        choices=("run", "schedule", "setup", "discover", "test-notify", "forget"),
         help="run: report what is new, once. "
         "schedule: report at once, then at every RUN_AT time. "
         "setup: ask for what the digest needs and write .env. "
         "discover: log in and record what the account reaches. "
-        "test-notify: send a test message.",
+        "test-notify: send a test message. "
+        "forget: drop the reported facts, so the next run starts over.",
     )
     parser.add_argument("--out", type=Path, default=Path("discovery"))
     parser.add_argument(
@@ -49,6 +51,11 @@ def dispatch(args: argparse.Namespace) -> int:
     if args.command == "discover":
         report = discover(settings, args.out)
         print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0
+
+    if args.command == "forget":
+        dropped = Store.load(settings.state_file).forget()
+        print(f"forgot {dropped} facts. The next run seeds and sends nothing.")
         return 0
 
     if args.command == "test-notify":

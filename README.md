@@ -49,6 +49,7 @@ journalctl -u infomentor-digest -f                     # watch the service
 .venv/bin/infomentor-digest run                        # report once
 .venv/bin/infomentor-digest run --dry-run --force      # print everything, send nothing
 .venv/bin/infomentor-digest test-notify                # check delivery
+.venv/bin/infomentor-digest forget                     # drop the reported facts and start over
 ```
 
 To update, `git pull` and run `sudo ./setup.sh` again: it installs what the checkout now holds and restarts the service, keeping your `.env`.

@@ -80,7 +80,7 @@ def test_render_orders_the_sections_by_what_needs_you_first() -> None:
         items=[
             Item(key="news:1", section=Section.NEWS, title="Veckobrev", body="Hej\nDå"),
             Item(key="event:1", section=Section.CALENDAR, title="mån 18 aug: Skolstart"),
-            Item(key="times:1", section=Section.TODO, title="Tider saknas: mån 18 aug"),
+            Item(key="times:1", section=Section.TODO, title="mån 18 aug: tider saknas"),
         ],
     )
 
@@ -88,7 +88,7 @@ def test_render_orders_the_sections_by_what_needs_you_first() -> None:
         "=== Alva ===\n"
         "\n"
         "Att göra:\n"
-        "• Tider saknas: mån 18 aug\n"
+        "• mån 18 aug: tider saknas\n"
         "\n"
         "Kalender:\n"
         "• mån 18 aug: Skolstart\n"
@@ -106,7 +106,7 @@ def test_headline_counts_the_facts_of_every_pupil() -> None:
         pupil=Pupil(id=2, name="Andersson, Noah"),
         items=[
             Item(key="news:1", section=Section.NEWS, title="Veckobrev"),
-            Item(key="times:1", section=Section.TODO, title="Tider saknas"),
+            Item(key="times:1", section=Section.TODO, title="mån 18 aug: tider saknas"),
         ],
     )
 
@@ -200,7 +200,7 @@ def test_collect_reports_every_module_the_pupil_has() -> None:
         "event:3:2025-08-24",
         "closed:2025-08-20",
     }
-    assert keyed["times:2025-08-18"].title == "Tider saknas: mån 18 aug"
+    assert keyed["times:2025-08-18"].title == "mån 18 aug: tider saknas"
     assert keyed["closed:2025-08-20"].title == "ons 20 aug: stängt — APT"
     assert keyed["news:1"].body == "Se bilagan\nBilaga: brev.pdf"
     assert [item.filename for item in keyed["news:1"].files] == ["brev.pdf"]
@@ -236,7 +236,8 @@ def test_collect_stays_quiet_about_a_completed_conference() -> None:
     assert collect(source, PUPIL, TODAY, days_ahead=21).items == []
 
 
-def test_collect_names_every_missing_day_in_one_fact() -> None:
+def test_collect_makes_a_missing_day_a_fact_of_its_own() -> None:
+    """Filling in one day must leave the others reported, so each day keys itself."""
     source = FakeSource(
         registration_days=[
             Day.model_validate({"date": "2025-08-18", "canEdit": True}),
@@ -244,10 +245,13 @@ def test_collect_names_every_missing_day_in_one_fact() -> None:
         ]
     )
 
-    (item,) = collect(source, PUPIL, TODAY, days_ahead=21).items
+    items = collect(source, PUPIL, TODAY, days_ahead=21).items
 
-    assert item.key == "times:2025-08-18,2025-08-19"
-    assert item.title == "Tider saknas: mån 18 aug, tis 19 aug"
+    assert [item.key for item in items] == ["times:2025-08-18", "times:2025-08-19"]
+    assert [item.title for item in items] == [
+        "mån 18 aug: tider saknas",
+        "tis 19 aug: tider saknas",
+    ]
 
 
 def test_collect_reads_the_calendar_as_one_timeline() -> None:

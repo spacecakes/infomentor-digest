@@ -185,17 +185,15 @@ def _closed_day(day: Day) -> Item:
 
 
 def _todo(source: Source, days: list[Day]) -> list[Item]:
-    items: list[Item] = []
-
-    missing = [day for day in days if day.times_missing]
-    if missing:
-        items.append(
-            Item(
-                key="times:" + ",".join(day.date.isoformat() for day in missing),
-                section=Section.TODO,
-                title="Tider saknas: " + ", ".join(label(day.date) for day in missing),
-            )
+    items: list[Item] = [
+        Item(
+            key=f"times:{day.date}",
+            section=Section.TODO,
+            title=f"{label(day.date)}: tider saknas",
         )
+        for day in days
+        if day.times_missing
+    ]
 
     conference = source.conference()
     if conference and conference.needs_parent:
