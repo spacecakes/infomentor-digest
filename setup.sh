@@ -18,6 +18,13 @@ python="${PYTHON:-python3}"
 # Editable, so a pull needs no reinstall.
 .venv/bin/pip install --quiet --editable .
 
+cache="${HOME:-$PWD}"
+free_mb=$(df -Pk "$cache" | awk 'NR == 2 {print int($4 / 1024)}')
+if [ "${free_mb:-0}" -lt 1024 ]; then
+    echo "Chromium needs about 1 GB free in $cache, and there is $free_mb MB." >&2
+    exit 1
+fi
+
 # --with-deps adds the system libraries Chromium needs, and wants root.
 if [ "$(uname)" = Linux ] && [ "$root" = yes ]; then
     .venv/bin/python -m playwright install --with-deps chromium

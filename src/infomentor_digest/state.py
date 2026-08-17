@@ -13,6 +13,7 @@ from pathlib import Path
 class Store:
     path: Path
     reported: dict[str, dict[str, set[str]]] = field(default_factory=dict)
+    failure: str = ""
 
     @classmethod
     def load(cls, path: Path) -> "Store":
@@ -25,6 +26,7 @@ class Store:
                 channel: {pupil: set(keys) for pupil, keys in pupils.items()}
                 for channel, pupils in raw.get("channels", {}).items()
             },
+            failure=raw.get("failure", ""),
         )
 
     def keys(self, channel: str, pupil_id: int) -> set[str]:
@@ -41,12 +43,32 @@ class Store:
     def add(self, channel: str, pupil_id: int, keys: set[str]) -> None:
         self.reported.setdefault(channel, {}).setdefault(str(pupil_id), set()).update(keys)
 
+    def failed(self, message: str) -> bool:
+        """Write the failure down, and say whether it differs from the last one.
+
+        The same broken password every evening is worth one message, not one a day.
+        """
+        new = message != self.failure
+        self.failure = message
+        return new
+
+    def fixed(self) -> bool:
+        """Forget the failure, and say whether there was one to forget.
+
+        Silence after a failure would leave the reader guessing, so the run that
+        works again says so.
+        """
+        had = bool(self.failure)
+        self.failure = ""
+        return had
+
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "channels": {
                 channel: {pupil: sorted(keys) for pupil, keys in pupils.items()}
                 for channel, pupils in self.reported.items()
-            }
+            },
+            "failure": self.failure,
         }
         self.path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

@@ -3,7 +3,7 @@
 Reads InfoMentor for every child on your account and sends what changed to a
 Telegram chat, to e-mail, or to both.
 
-The official app (well, web wrapper) is slow, cumbersome and buggy so I just rarely use it, mostly because it fails to notify me and every time I open myself I am reminded of how much better Tyra was. But I still want to know what's going on, so I made this to distill the info from their endpoints into a more easily accessible format.
+The official app (well, web wrapper) is slow, cumbersome and buggy so I just rarely use it, mostly because it fails to notify me and every time I open myself I am reminded of how much better Tyra was. But I still want to know what's going on, so I made this to distill the info from their endpoints into a more easily accessible format. It uses a Chromium instance to browse their web so we don't have to, then reports back in an easy-to-read format.
 
 Unofficial. No connection to InfoMentor.
 
@@ -50,10 +50,6 @@ journalctl -u infomentor-digest -f                     # watch the service
 .venv/bin/infomentor-digest run --dry-run --force      # print everything, send nothing
 .venv/bin/infomentor-digest test-notify                # check delivery
 ```
-
-Prefix the last three with `sudo` if you installed with `sudo`, which leaves `data/` owned by root. The service reports at once, then at every `RUN_AT` time, always Swedish time, whatever the host clock says. The run on start is what makes a restart safe: a process that comes up at 18:31 would otherwise skip the day, and a repeat costs nothing.
-
-`data/` holds the reported keys. A move that leaves it behind seeds the new copy, which then stays quiet for one cycle.
 
 To update, `git pull` and run `sudo ./setup.sh` again: it installs what the checkout now holds and restarts the service, keeping your `.env`.
 

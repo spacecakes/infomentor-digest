@@ -19,7 +19,8 @@ def test_saved_keys_come_back_on_the_next_run(tmp_path: Path) -> None:
     store.save()
 
     assert json.loads(path.read_text(encoding="utf-8")) == {
-        "channels": {"telegram": {"1": ["news:1", "news:2"]}}
+        "channels": {"telegram": {"1": ["news:1", "news:2"]}},
+        "failure": "",
     }
 
     later = Store.load(path)
@@ -59,3 +60,26 @@ def test_a_seeded_pupil_is_known_although_it_reported_nothing(tmp_path: Path) ->
     store.add("telegram", 1, set())
 
     assert store.knows("telegram", 1) is True
+
+
+def test_a_failure_is_new_once(tmp_path: Path) -> None:
+    """The reader hears about a problem once, and about a new problem again."""
+    store = Store.load(tmp_path / "reported.json")
+
+    assert store.failed("login timed out") is True
+    assert store.failed("login timed out") is False
+    assert store.failed("503 from the hub") is True
+
+
+def test_a_failure_outlives_the_run_that_wrote_it(tmp_path: Path) -> None:
+    """A restart every evening would otherwise send the same problem every evening."""
+    path = tmp_path / "reported.json"
+    store = Store.load(path)
+    store.failed("login timed out")
+    store.save()
+
+    later = Store.load(path)
+
+    assert later.failed("login timed out") is False
+    assert later.fixed() is True
+    assert later.fixed() is False, "a working run says so once"
