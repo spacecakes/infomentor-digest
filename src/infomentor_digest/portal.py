@@ -5,7 +5,7 @@ LOGIN_URL; most schools now land on the Hub after that form is submitted.
 `login` follows whichever redirect the account gets and reports where it ended.
 """
 
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -44,9 +44,20 @@ def login(settings: Settings) -> Generator[Session]:
 
         page.wait_for_load_state("networkidle")
         if LOGIN_URL in page.url:
-            raise LoginFailed(f"still on the login page as {settings.infomentor_username}")
+            shown = page.locator(".error-message:visible").all_inner_texts()
+            raise LoginFailed(f"{refusal(shown)} (as {settings.infomentor_username})")
 
         try:
             yield Session(page=page, landing_url=page.url)
         finally:
             browser.close()
+
+
+def refusal(messages: Sequence[str]) -> str:
+    """Why the login page came back, in InfoMentor's own words.
+
+    The form holds one message per reason and hides the ones that do not apply,
+    so only the shown text says anything.
+    """
+    said = " ".join(text.strip() for text in messages if text.strip())
+    return said or "still on the login page"
