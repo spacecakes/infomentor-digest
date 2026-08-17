@@ -60,7 +60,7 @@ def offer(channel: Channel, subject: str, body: str, files: Sequence[File]) -> b
     try:
         channel.deliver(subject, body, files)
     except Exception as error:
-        print(f"delivery failed on {channel.name}: {error}", file=sys.stderr, flush=True)
+        print(f"delivery failed on {channel.name}: {error}", file=sys.stderr)
         return False
     return True
 

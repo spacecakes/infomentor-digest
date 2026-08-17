@@ -31,7 +31,7 @@ def serve(settings: Settings) -> None:
     while True:
         attempt(settings)
         target = next_run(now(), times)
-        print(f"next run {target:%Y-%m-%d %H:%M}", flush=True)
+        print(f"next run {target:%Y-%m-%d %H:%M}")
         clock_module.sleep((target - now()).total_seconds())
 
 
@@ -41,9 +41,9 @@ def attempt(settings: Settings) -> None:
     A night InfoMentor is unreachable must cost one digest, not the schedule.
     """
     try:
-        print(outcome(run(settings, now().date())), flush=True)
+        print(outcome(run(settings, now().date())))
     except Exception as error:
-        print(f"run failed: {error}", file=sys.stderr, flush=True)
+        print(f"run failed: {error}", file=sys.stderr)
 
 
 def parse_times(value: str) -> list[time]:

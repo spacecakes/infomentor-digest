@@ -36,6 +36,8 @@ Description=InfoMentor digest
 After=network-online.target
 
 [Service]
+# The journal reads a pipe, which Python would buffer until the digest is done.
+Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=$PWD
 ExecStart=$PWD/.venv/bin/infomentor-digest schedule
 Restart=always
