@@ -8,6 +8,7 @@ not have with an HTML shell instead of JSON, so every accessor treats a
 non-JSON answer as "no data" and returns an empty result.
 """
 
+import sys
 from dataclasses import dataclass
 from datetime import date
 
@@ -192,21 +193,33 @@ class Hub:
     def fetch(self, attachment: Attachment) -> File | None:
         """Download a file so it can be sent. A link would ask the reader to log in.
 
-        A nameless or empty file is no file: Telegram refuses both.
+        The Hub serves a file only to the session that has its child selected,
+        so `select` the child first. A nameless or empty file is no file:
+        Telegram refuses both.
         """
         if not attachment.path or not attachment.filename:
+            _left_out(attachment, "the payload named no file to download")
             return None
         response = self.page.context.request.get(f"{BASE}{attachment.path}")
         if not response.ok:
+            _left_out(attachment, f"the Hub answered {response.status}")
             return None
         content = response.body()
-        return File(name=attachment.filename, content=content) if content else None
+        if not content:
+            _left_out(attachment, "the Hub sent no bytes")
+            return None
+        return File(name=attachment.filename, content=content)
 
     def _get(self, path: str) -> object:
         return _read(self.page.context.request.get(f"{BASE}{path}"))
 
     def _post(self, path: str, body: dict[str, object]) -> object:
         return _read(self.page.context.request.post(f"{BASE}{path}", data=body))
+
+
+def _left_out(attachment: Attachment, reason: str) -> None:
+    """A file that never arrives must say why: the digest only names it."""
+    print(f"left out {attachment.filename or attachment.path}: {reason}", file=sys.stderr)
 
 
 def _read(response: APIResponse) -> object:

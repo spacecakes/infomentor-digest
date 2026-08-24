@@ -25,24 +25,37 @@ Message = tuple[str, str, list[File]]
 class FakeHub(FakeSource):
     children: list[Pupil] = field(default_factory=list)
     refused: set[str] = field(default_factory=set)
-    fetched: list[str] = field(default_factory=list)
+    fetched: list[tuple[int, str]] = field(default_factory=list)
+    """Which child was selected for each download: the Hub serves a file only to its own child."""
 
     def pupils(self) -> list[Pupil]:
         return self.children
 
     def fetch(self, attachment: Attachment) -> File | None:
-        self.fetched.append(attachment.path)
+        self.fetched.append((self.selected[-1], attachment.path))
         if attachment.path in self.refused:
             return None
         return File(name=attachment.filename, content=b"bytes")
 
 
 @dataclass
+class PerChild(FakeHub):
+    """A hub whose news depends on the selected child, as the real one is."""
+
+    per_child: dict[int, list[NewsItem]] = field(default_factory=dict)
+
+    def news(self) -> list[NewsItem]:
+        return self.per_child.get(self.selected[-1], [])
+
+
+@dataclass
 class Recorder:
-    """A channel that keeps what it was offered, or refuses everything."""
+    """A channel that keeps what it was offered, or refuses it."""
 
     name: str
     refuses: bool = False
+    refuses_child: str = ""
+    """The one child this channel will not take, while it takes the others."""
     messages: list[Message] = field(default_factory=list)
 
     @property
@@ -50,7 +63,7 @@ class Recorder:
         return Channel(name=self.name, deliver=self.deliver)
 
     def deliver(self, subject: str, body: str, files: Sequence[File]) -> None:
-        if self.refuses:
+        if self.refuses or (self.refuses_child and self.refuses_child in subject):
             raise RuntimeError("channel down")
         self.messages.append((subject, body, list(files)))
 
@@ -124,6 +137,30 @@ def test_a_later_run_reports_only_the_new_fact(
     assert "Nytt" in text
     assert "Veckobrev" not in text, "already reported"
     assert sent == [("InfoMentor sön 17 aug · Alva 1", text, [])]
+
+
+def test_each_child_is_its_own_message(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, sent: list[Message]
+) -> None:
+    """A message about one child lets the notification name that child."""
+    noah = Pupil(id=2, name="Andersson, Noah")
+    use(
+        monkeypatch,
+        PerChild(
+            children=[ALVA, noah],
+            per_child={ALVA.id: [news(1, "Veckobrev")], noah.id: [news(2, "Fritidsbrev")]},
+        ),
+    )
+    known(settings, [ALVA, noah])
+
+    run(settings, TODAY)
+
+    (alva_subject, alva_body, _), (noah_subject, noah_body, _) = sent
+    assert alva_subject == "InfoMentor sön 17 aug · Alva 1"
+    assert noah_subject == "InfoMentor sön 17 aug · Noah 1"
+    assert "Veckobrev" in alva_body
+    assert "Fritidsbrev" not in alva_body, "a message holds one child"
+    assert "Fritidsbrev" in noah_body
 
 
 def test_a_run_with_nothing_new_sends_nothing(
@@ -209,10 +246,10 @@ def test_the_files_of_a_reported_fact_travel_with_the_digest(
     assert files[0].content == b"bytes"
 
 
-def test_a_file_both_children_have_travels_once(
+def test_a_file_both_children_have_is_downloaded_once(
     monkeypatch: pytest.MonkeyPatch, settings: Settings, sent: list[Message]
 ) -> None:
-    """A school-wide letter sits under every child, and is one upload all the same."""
+    """A school-wide letter sits under every child, and follows each child's message."""
     noah = Pupil(id=2, name="Andersson, Noah")
     hub = FakeHub(
         children=[ALVA, noah], news_items=[news(1, "Veckobrev", [attachment("brev.pdf")])]
@@ -222,9 +259,8 @@ def test_a_file_both_children_have_travels_once(
 
     run(settings, TODAY)
 
-    ((_, _, files),) = sent
-    assert [file.name for file in files] == ["brev.pdf"]
-    assert hub.fetched == ["/Download/brev.pdf"]
+    assert [[file.name for file in files] for _, _, files in sent] == [["brev.pdf"], ["brev.pdf"]]
+    assert hub.fetched == [(ALVA.id, "/Download/brev.pdf")]
 
 
 def test_a_file_the_hub_refuses_is_left_out(
@@ -243,6 +279,33 @@ def test_a_file_the_hub_refuses_is_left_out(
     ((_, _, files),) = sent
     assert [file.name for file in files] == ["brev.pdf"]
     assert "Bilaga: borta.pdf" in text, "the digest still names it"
+
+
+def test_each_childs_file_is_downloaded_with_that_child_selected(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, sent: list[Message]
+) -> None:
+    """A file is served only to the session that selected its child, so both must be selected."""
+    noah = Pupil(id=2, name="Andersson, Noah")
+    hub = PerChild(
+        children=[ALVA, noah],
+        per_child={
+            ALVA.id: [news(1, "Veckobrev", [attachment("veckobrev.pdf")])],
+            noah.id: [news(2, "Fritids veckobrev", [attachment("fritids.pdf")])],
+        },
+    )
+    use(monkeypatch, hub)
+    known(settings, [ALVA, noah])
+
+    run(settings, TODAY)
+
+    assert [[file.name for file in files] for _, _, files in sent] == [
+        ["veckobrev.pdf"],
+        ["fritids.pdf"],
+    ]
+    assert hub.fetched == [
+        (ALVA.id, "/Download/veckobrev.pdf"),
+        (noah.id, "/Download/fritids.pdf"),
+    ]
 
 
 def test_a_dry_run_downloads_nothing(
@@ -287,7 +350,7 @@ def test_every_channel_gets_the_same_digest(
     run(settings, TODAY)
 
     assert telegram.messages == mail.messages
-    assert hub.fetched == ["/Download/brev.pdf"], "one download serves both channels"
+    assert hub.fetched == [(ALVA.id, "/Download/brev.pdf")], "one download serves both channels"
     assert [file.name for _, _, files in mail.messages for file in files] == ["brev.pdf"]
 
 
@@ -311,6 +374,37 @@ def test_a_refused_digest_is_offered_again_and_only_to_that_channel(
     assert "Ny" in mail.messages[0][1], "the refused fact came back for the mail relay"
     assert "Ny" in text
     assert len(telegram.messages) == 1, "the channel that took it stays quiet"
+
+
+def test_a_refused_child_comes_back_while_the_other_stays_quiet(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """A child is remembered on its own, so one refusal does not repeat the whole digest."""
+    telegram = Recorder("telegram", refuses_child="Noah")
+    use_channels(monkeypatch, telegram)
+    noah = Pupil(id=2, name="Andersson, Noah")
+    hub = PerChild(
+        children=[ALVA, noah],
+        per_child={ALVA.id: [news(1, "Veckobrev")], noah.id: [news(2, "Fritidsbrev")]},
+    )
+    use(monkeypatch, hub)
+    known(settings, [ALVA, noah])
+
+    run(settings, TODAY)
+
+    store = Store.load(settings.state_file)
+    assert store.keys("telegram", ALVA.id) == {"news:1"}
+    assert store.keys("telegram", noah.id) == set(), "a refused child keeps its facts"
+
+    telegram.refuses_child = ""
+    text = run(settings, TODAY)
+
+    assert "Fritidsbrev" in text
+    assert "Veckobrev" not in text, "the child that arrived stays quiet"
+    assert [subject for subject, _, _ in telegram.messages] == [
+        "InfoMentor sön 17 aug · Alva 1",
+        "InfoMentor sön 17 aug · Noah 1",
+    ]
 
 
 def test_a_digest_no_channel_took_fails_the_run(

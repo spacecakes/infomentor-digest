@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from datetime import date
 from enum import StrEnum
 
-from .api import Attachment, File, Hub
+from .api import Attachment, File, Hub, Pupil
 from .config import Settings
 from .digest import PupilDigest, collect, headline, render, sample, unseen
 from .notify import Channel, channels, ensure_delivered, offer
@@ -27,8 +27,11 @@ class Scope(StrEnum):
 def run(settings: Settings, today: date, *, scope: Scope = Scope.NEW, dry_run: bool = False) -> str:
     """Return the text that was reported, empty when there was nothing new.
 
-    Every channel keeps its own reported keys, so a channel that failed is
-    offered the same facts again on the next run while the others stay quiet.
+    Every child is its own message, so the notification names the child it is
+    about and that child's files follow that child's text.
+
+    Every channel keeps its own reported keys, per child, so a child a channel
+    failed to take is offered again on the next run while the rest stay quiet.
     A digest no channel took is a failed run, raised once the store holds what
     did land.
     """
@@ -47,23 +50,23 @@ def run(settings: Settings, today: date, *, scope: Scope = Scope.NEW, dry_run: b
         downloads = _download(hub, [plan for _, plan in plans])
 
     accepted: list[bool] = []
-    reported = ""
+    reported: dict[int, str] = {}
     for channel, plan in plans:
-        text = render(plan)
-        if not text:
-            continue
-        took = offer(channel, headline(plan, today), text, _files(plan, downloads))
-        accepted.append(took)
-        if not took:
-            continue
-        if scope.remembers:
-            for digest in plan:
+        for digest in plan:
+            text = render([digest])
+            if not text:
+                continue
+            took = offer(channel, headline([digest], today), text, _files([digest], downloads))
+            accepted.append(took)
+            if not took:
+                continue
+            if scope.remembers:
                 store.add(channel.name, digest.pupil.id, digest.keys)
-        reported = text
+            reported[digest.pupil.id] = text
 
     store.save()
     ensure_delivered(accepted)
-    return reported
+    return "\n\n".join(reported.values())
 
 
 def outcome(text: str) -> str:
@@ -92,16 +95,35 @@ def _download(hub: Hub, plans: Iterable[list[PupilDigest]]) -> dict[str, File]:
     """The files of the planned facts, keyed by path so two channels share one download.
 
     A link would ask the reader to log in, so the bytes travel with the digest.
+    The Hub serves a file only while its own child is selected, so the download
+    goes child by child.
     """
-    wanted = {attachment.path: attachment for plan in plans for attachment in _attachments(plan)}
-    return {path: file for path, attachment in wanted.items() if (file := hub.fetch(attachment))}
+    downloads: dict[str, File] = {}
+    selected: int | None = None
+    for pupil, attachment in _wanted(plans):
+        if pupil.id != selected:
+            hub.select(pupil)
+            selected = pupil.id
+        if file := hub.fetch(attachment):
+            downloads[attachment.path] = file
+    return downloads
+
+
+def _wanted(plans: Iterable[list[PupilDigest]]) -> list[tuple[Pupil, Attachment]]:
+    """Every file to download, grouped by child: a letter both children have is one download."""
+    wanted: dict[str, tuple[Pupil, Attachment]] = {}
+    for plan in plans:
+        for digest in plan:
+            for attachment in _attachments(digest):
+                wanted.setdefault(attachment.path, (digest.pupil, attachment))
+    return sorted(wanted.values(), key=lambda pair: pair[0].id)
 
 
 def _files(plan: list[PupilDigest], downloads: dict[str, File]) -> list[File]:
-    """One file per path: a letter that reaches both children travels once."""
-    paths = dict.fromkeys(attachment.path for attachment in _attachments(plan))
+    """One file per path: a letter named by two facts is sent once."""
+    paths = dict.fromkeys(attachment.path for digest in plan for attachment in _attachments(digest))
     return [downloads[path] for path in paths if path in downloads]
 
 
-def _attachments(plan: list[PupilDigest]) -> list[Attachment]:
-    return [attachment for digest in plan for item in digest.items for attachment in item.files]
+def _attachments(digest: PupilDigest) -> list[Attachment]:
+    return [attachment for item in digest.items for attachment in item.files]

@@ -9,7 +9,7 @@ Unofficial. No connection to InfoMentor.
 
 ## What it reports
 
-Each child gets a block. The sections run in reading order: what needs you, then what happens, then what is only worth knowing. No AI and no paid service. The digest is grouped plain text, and the endpoint a fact came from decides its section.
+Each child gets its own message, so the notification names the child it is about. The sections run in reading order: what needs you, then what happens, then what is only worth knowing. No AI and no paid service. The digest is grouped plain text, and the endpoint a fact came from decides its section.
 
 | Section  | Content                                                                                  |
 | -------- | ---------------------------------------------------------------------------------------- |
@@ -67,7 +67,7 @@ To update, `git pull` and run `sudo ./setup.sh` again: it installs what the chec
 
 `.env` holds them, `env.example` lists every one with its default, and an environment variable wins over the file. Edit `.env`, then `systemctl restart infomentor-digest` to pick it up.
 
-Every channel you set up gets the digest and keeps its own reported keys. A channel that fails is written to the log, the others still deliver, and the facts it missed come back on the next run.
+Every channel you set up gets the digest and keeps its own reported keys, per child. A channel that fails is written to the log, the others still deliver, and the child it missed comes back on the next run.
 
 ## Troubleshooting
 

@@ -24,6 +24,7 @@ from infomentor_digest.api import (
 class FakeResponse:
     ok: bool
     payload: bytes = b""
+    status: int = 200
 
     def body(self) -> bytes:
         return self.payload
@@ -99,14 +100,16 @@ def test_fetch_downloads_the_file_through_the_session() -> None:
     assert (file.name, file.content) == ("brev.pdf", b"%PDF-1.4")
 
 
-def test_fetch_gives_up_on_a_file_the_hub_refuses() -> None:
-    hub, _ = hub_answering(FakeResponse(ok=False))
+def test_fetch_gives_up_on_a_file_the_hub_refuses(capsys: pytest.CaptureFixture[str]) -> None:
+    """A missing file leaves nothing but the name in the digest, so the log carries the reason."""
+    hub, _ = hub_answering(FakeResponse(ok=False, status=403))
 
     assert hub.fetch(Attachment.model_validate({"title": "brev.pdf", "url": "/Download/1"})) is None
+    assert "left out brev.pdf: the Hub answered 403" in capsys.readouterr().err
 
 
 def test_fetch_gives_up_on_an_empty_download() -> None:
-    """Telegram refuses a file of no bytes, and the refusal costs the whole digest."""
+    """Telegram refuses a file of no bytes, so it must never leave the Hub."""
     hub, _ = hub_answering(FakeResponse(ok=True, payload=b""))
 
     assert hub.fetch(Attachment.model_validate({"title": "brev.pdf", "url": "/Download/1"})) is None
