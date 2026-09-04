@@ -39,7 +39,13 @@ PUPIL = Pupil(id=1, name="Andersson, Alva")
         ("<ul><li>Ett</li><li>Två</li></ul>", "Ett\nTvå"),
         ("<p>&Ouml;ppet kl 8 &amp; 16</p>", "Öppet kl 8 & 16"),
         ("<p></p><p>  Hej  </p><p></p>", "Hej"),
-        ('<a href="https://x.se">Länk</a>', "Länk"),
+        ("<h2>Rubrik</h2>Text", "Rubrik\nText"),
+        ("<table><tr><td>Mån</td><td>Pannkaka</td></tr></table>", "Mån\nPannkaka"),
+        ('<a href="https://x.se">Länk</a>', "Länk (https://x.se)"),
+        ('Skriv till <a href="mailto:bim@skolan.se">bim@skolan.se</a>', "Skriv till bim@skolan.se"),
+        ('<a href="https://x.se">https://x.se</a>', "https://x.se"),
+        ('<a href="https://x.se"><img src="/p.png" /></a>', "https://x.se"),
+        ('<a href="https://x.se">Läs <b>mer</b></a>', "Läs mer (https://x.se)"),
         ("", ""),
     ],
 )
@@ -84,9 +90,7 @@ def test_render_orders_the_sections_by_what_needs_you_first() -> None:
         ],
     )
 
-    assert render([digest]) == (
-        "=== Alva ===\n"
-        "\n"
+    assert render(digest) == (
         "Att göra:\n"
         "• mån 18 aug: tider saknas\n"
         "\n"
@@ -100,31 +104,45 @@ def test_render_orders_the_sections_by_what_needs_you_first() -> None:
     )
 
 
-def test_headline_counts_the_facts_of_every_pupil() -> None:
-    quiet = PupilDigest(pupil=PUPIL, items=[])
-    loud = PupilDigest(
-        pupil=Pupil(id=2, name="Andersson, Noah"),
+def test_render_spaces_a_fact_that_carries_text() -> None:
+    """Bare titles stay tight; a fact with lines under it needs air around it."""
+    digest = PupilDigest(
+        pupil=PUPIL,
         items=[
-            Item(key="news:1", section=Section.NEWS, title="Veckobrev"),
             Item(key="times:1", section=Section.TODO, title="mån 18 aug: tider saknas"),
+            Item(key="times:2", section=Section.TODO, title="tis 19 aug: tider saknas"),
+            Item(key="tasks:1:0", section=Section.TODO, title="Uppgifter", body="Läsläxa"),
+            Item(key="conference:8:New", section=Section.TODO, title="Utvecklingssamtal"),
         ],
     )
 
-    assert headline([quiet, loud], TODAY) == "InfoMentor sön 17 aug · Noah 2"
-
-
-def test_render_skips_a_pupil_with_nothing_new() -> None:
-    quiet = PupilDigest(pupil=PUPIL, items=[])
-    loud = PupilDigest(
-        pupil=Pupil(id=2, name="Andersson, Noah"),
-        items=[Item(key="news:1", section=Section.NEWS, title="Veckobrev")],
+    assert render(digest) == (
+        "Att göra:\n"
+        "• mån 18 aug: tider saknas\n"
+        "• tis 19 aug: tider saknas\n"
+        "\n"
+        "• Uppgifter\n"
+        "  Läsläxa\n"
+        "\n"
+        "• Utvecklingssamtal"
     )
 
-    assert render([quiet, loud]) == "=== Noah ===\n\nNytt:\n• Veckobrev"
+
+@pytest.mark.parametrize(
+    ("count", "expected"),
+    [(1, "Alva · sön 17 aug · 1 nytt"), (3, "Alva · sön 17 aug · 3 nya")],
+)
+def test_headline_names_the_child_first_and_counts_its_facts(count: int, expected: str) -> None:
+    items = [
+        Item(key=f"news:{number}", section=Section.NEWS, title="Veckobrev")
+        for number in range(count)
+    ]
+
+    assert headline(PupilDigest(pupil=PUPIL, items=items), TODAY) == expected
 
 
-def test_render_is_empty_when_no_pupil_has_anything() -> None:
-    assert render([PupilDigest(pupil=PUPIL, items=[])]) == ""
+def test_render_is_empty_when_the_child_has_nothing() -> None:
+    assert render(PupilDigest(pupil=PUPIL, items=[])) == ""
 
 
 def test_collect_selects_the_pupil_and_asks_for_the_wanted_window() -> None:
@@ -193,7 +211,7 @@ def test_collect_reports_every_module_the_pupil_has() -> None:
     assert set(keyed) == {
         "times:2025-08-18",
         "conference:8:New",
-        "meeting:2",
+        "meeting:2025w33",
         "tasks:1:0",
         "news:1",
         "learnlog:5:2025-08-16T10:00:00",
@@ -202,6 +220,8 @@ def test_collect_reports_every_module_the_pupil_has() -> None:
     }
     assert keyed["times:2025-08-18"].title == "mån 18 aug: tider saknas"
     assert keyed["closed:2025-08-20"].title == "ons 20 aug: stängt — APT"
+    assert keyed["meeting:2025w33"].title == "2 mötestider att boka"
+    assert keyed["news:1"].title == "Veckobrev (fre 15 aug)"
     assert keyed["news:1"].body == "Se bilagan\nBilaga: brev.pdf"
     assert [item.filename for item in keyed["news:1"].files] == ["brev.pdf"]
     assert keyed["learnlog:5:2025-08-16T10:00:00"].title == "Lärlogg: Vi målade (Solrosen)"
@@ -308,3 +328,95 @@ def test_collect_caps_a_long_burst_of_photos() -> None:
 
     assert item.body == f"{PHOTO_LIMIT} av {len(photos)} bilder"
     assert len(item.files) == PHOTO_LIMIT
+
+
+def test_collect_counts_one_photo_in_the_singular() -> None:
+    source = FakeSource(
+        learnlog_entries=[
+            LearnlogEntry.model_validate(
+                {
+                    "id": 5,
+                    "title": "Utflykt",
+                    "media": [{"fileName": "a", "fileExtension": "jpg", "fileUrl": "/a"}],
+                }
+            )
+        ]
+    )
+
+    (item,) = collect(source, PUPIL, TODAY, days_ahead=21).items
+
+    assert item.body == "1 bild"
+
+
+@pytest.mark.parametrize(
+    ("published", "expected"),
+    [
+        ("2025-08-15", "Veckobrev (fre 15 aug)"),
+        ("15 augusti 2025", "Veckobrev (15 augusti 2025)"),
+        ("", "Veckobrev"),
+    ],
+)
+def test_collect_reads_the_news_date_like_every_other_date(published: str, expected: str) -> None:
+    """A date the Hub words differently is shown as it came, never as empty parentheses."""
+    source = FakeSource(
+        news_items=[
+            NewsItem.model_validate(
+                {"id": 1, "title": "Veckobrev", "publishedDateString": published}
+            )
+        ]
+    )
+
+    (item,) = collect(source, PUPIL, TODAY, days_ahead=21).items
+
+    assert item.title == expected
+
+
+@pytest.mark.parametrize(
+    ("slots", "title"), [(1, "1 mötestid att boka"), (8, "8 mötestider att boka")]
+)
+def test_collect_keys_the_meeting_times_on_the_week_not_the_count(slots: int, title: str) -> None:
+    """Booking one time changes the count, which must not report the same task again."""
+    (item,) = collect(FakeSource(slots=slots), PUPIL, TODAY, days_ahead=21).items
+
+    assert item.key == "meeting:2025w33"
+    assert item.title == title
+
+
+def test_collect_leaves_out_the_images_a_mail_editor_pastes() -> None:
+    """A post written in a mail client carries its signature images as attachments."""
+    source = FakeSource(
+        news_items=[
+            NewsItem.model_validate(
+                {
+                    "id": 1,
+                    "title": "Veckobrev",
+                    "attachments": [
+                        {"title": "image001.png", "url": "/i/1"},
+                        {"title": "IMAGE002.JPG", "url": "/i/2"},
+                        {"title": "brev.pdf", "url": "/Resources/Resource/Download/9"},
+                    ],
+                }
+            )
+        ]
+    )
+
+    (item,) = collect(source, PUPIL, TODAY, days_ahead=21).items
+
+    assert [file.filename for file in item.files] == ["brev.pdf"]
+    assert item.body == "Bilaga: brev.pdf"
+
+
+def test_collect_leaves_out_an_event_a_news_post_already_names() -> None:
+    source = FakeSource(
+        news_items=[NewsItem.model_validate({"id": 1, "title": "Föräldramöte  "})],
+        events=[
+            CalendarEvent.model_validate(
+                {"id": 3, "title": "föräldramöte", "startDate": "2025-08-24"}
+            ),
+            CalendarEvent.model_validate({"id": 4, "title": "Skolfoto", "startDate": "2025-08-25"}),
+        ],
+    )
+
+    items = collect(source, PUPIL, TODAY, days_ahead=21).items
+
+    assert [item.key for item in items] == ["event:4:2025-08-25", "news:1"]

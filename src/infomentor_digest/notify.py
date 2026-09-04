@@ -14,6 +14,9 @@ from .api import File
 from .config import Settings
 
 TELEGRAM_LIMIT = 3900
+CAPTION_LIMIT = 1024
+"""Telegram refuses a longer caption, and the digest text already carries the whole fact."""
+
 PHOTO_BYTES = 10_000_000
 """Telegram takes a photo up to ten megabytes, and a document up to fifty."""
 
@@ -80,7 +83,34 @@ def send(settings: Settings, subject: str, body: str, files: Sequence[File] = ()
 
 
 def split(text: str, limit: int) -> list[str]:
-    """Cut a long digest into Telegram-sized parts, on line boundaries."""
+    """Cut a long digest into Telegram-sized parts, between whole facts.
+
+    A fact and the lines under it belong together, so the cut goes before a
+    bullet. A single fact longer than one part is cut on its lines.
+    """
+    parts: list[str] = []
+    held: list[str] = []
+    for block in _facts(text):
+        if held and len("\n".join([*held, block])) > limit:
+            parts.extend(_lines("\n".join(held), limit))
+            held = []
+        held.append(block)
+    parts.extend(_lines("\n".join(held), limit))
+    return parts
+
+
+def _facts(text: str) -> list[str]:
+    """The text in whole facts: each bullet with the lines that belong under it."""
+    facts: list[list[str]] = [[]]
+    for line in text.splitlines():
+        if line.startswith("•") and any(held.strip() for held in facts[-1]):
+            facts.append([])
+        facts[-1].append(line)
+    return ["\n".join(fact) for fact in facts if fact]
+
+
+def _lines(text: str, limit: int) -> list[str]:
+    """Cut on line boundaries, and cut a line no part can hold."""
     parts: list[str] = []
     current: list[str] = []
     length = 0
@@ -135,7 +165,10 @@ def _send_telegram_file(settings: Settings, file: File) -> None:
     _call(
         settings,
         method,
-        data={"chat_id": settings.telegram_chat_id, "caption": file.name},
+        data={
+            "chat_id": settings.telegram_chat_id,
+            "caption": (file.caption or file.name)[:CAPTION_LIMIT],
+        },
         files={field: (file.name, file.content, content_type(file.name))},
     )
 

@@ -7,7 +7,7 @@ import pytest
 from infomentor_digest import notify as notify_module
 from infomentor_digest.api import File
 from infomentor_digest.config import Settings
-from infomentor_digest.notify import PHOTO_BYTES, send, split
+from infomentor_digest.notify import CAPTION_LIMIT, PHOTO_BYTES, send, split
 
 BOT_TOKEN = "8835574256:AAsecret"
 TELEGRAM = {"telegram_bot_token": BOT_TOKEN, "telegram_chat_id": "42"}
@@ -113,6 +113,24 @@ def test_a_line_longer_than_the_limit_is_cut() -> None:
     assert parts == ["a" * 10]
 
 
+def test_a_long_digest_is_cut_between_facts() -> None:
+    """A fact and the lines under it must arrive in one message."""
+    text = "Nytt:\n• Ett\n  rad ett\n• Två\n  rad två\n• Tre\n  rad tre"
+
+    parts = split(text, 30)
+
+    assert parts == ["Nytt:\n• Ett\n  rad ett", "• Två\n  rad två", "• Tre\n  rad tre"]
+    assert "\n".join(parts) == text, "no line is lost or moved"
+
+
+def test_a_fact_longer_than_one_part_is_cut_on_its_lines() -> None:
+    text = "• Veckobrev\n  rad ett\n  rad två\n  rad tre"
+
+    parts = split(text, 25)
+
+    assert parts == ["• Veckobrev\n  rad ett", "  rad två\n  rad tre"]
+
+
 def test_the_digest_goes_to_the_chat_as_plain_text(
     settings: Settings, telegram: FakeTelegram
 ) -> None:
@@ -140,6 +158,23 @@ def test_a_photo_goes_in_the_chat_and_a_document_as_a_file(
     assert photo.files == {"photo": ("bild.jpg", b"jpeg", "image/jpeg")}
     assert (document.method, document.data["caption"]) == ("sendDocument", "brev.pdf")
     assert document.files == {"document": ("brev.pdf", b"%PDF", "application/pdf")}
+
+
+def test_a_file_arrives_under_the_fact_that_named_it(
+    settings: Settings, telegram: FakeTelegram
+) -> None:
+    """The file name says nothing; the fact tells the reader what the file is."""
+    send(settings, "InfoMentor", "Hej", [File(name="d1.pdf", content=b"%PDF", caption="Veckobrev")])
+
+    assert telegram.calls[1].data["caption"] == "Veckobrev"
+
+
+def test_a_caption_too_long_for_telegram_is_cut(settings: Settings, telegram: FakeTelegram) -> None:
+    send(
+        settings, "InfoMentor", "Hej", [File(name="brev.pdf", content=b"%PDF", caption="a" * 2000)]
+    )
+
+    assert telegram.calls[1].data["caption"] == "a" * CAPTION_LIMIT
 
 
 def test_a_photo_over_the_size_limit_goes_as_a_document(

@@ -42,36 +42,46 @@ def run(settings: Settings, today: date, *, scope: Scope = Scope.NEW, dry_run: b
         hub = Hub(page=session.page)
         facts = [collect(hub, pupil, today, settings.days_ahead) for pupil in hub.pupils()]
         if dry_run:
-            return render(
-                [_take(digest, store.keys_anywhere(digest.pupil.id), scope) for digest in facts]
-            )
+            shown = [_take(digest, store.keys_anywhere(digest.pupil.id), scope) for digest in facts]
+            return _log(_message(digest, today) for digest in shown)
 
         plans = [(channel, _plan(store, channel.name, facts, scope)) for channel in targets]
         downloads = _download(hub, [plan for _, plan in plans])
 
     accepted: list[bool] = []
-    reported: dict[int, str] = {}
+    reported: dict[int, tuple[str, str]] = {}
     for channel, plan in plans:
         for digest in plan:
-            text = render([digest])
-            if not text:
+            subject, body = _message(digest, today)
+            if not body:
                 continue
-            took = offer(channel, headline([digest], today), text, _files([digest], downloads))
+            took = offer(channel, subject, body, _files(digest, downloads))
             accepted.append(took)
             if not took:
                 continue
             if scope.remembers:
                 store.add(channel.name, digest.pupil.id, digest.keys)
-            reported[digest.pupil.id] = text
+            reported[digest.pupil.id] = (subject, body)
 
     store.save()
     ensure_delivered(accepted)
-    return "\n\n".join(reported.values())
+    return _log(reported.values())
 
 
 def outcome(text: str) -> str:
     """The line a finished run leaves in the log."""
     return text or "nothing new"
+
+
+def _message(digest: PupilDigest, today: date) -> tuple[str, str]:
+    """One child's notification: its headline and its body, both empty when it has nothing."""
+    body = render(digest)
+    return (headline(digest, today), body) if body else ("", "")
+
+
+def _log(messages: Iterable[tuple[str, str]]) -> str:
+    """Every message as it was sent, which is what the run prints and the log keeps."""
+    return "\n\n".join(f"{subject}\n\n{body}" for subject, body in messages if body)
 
 
 def _plan(store: Store, channel: str, facts: list[PupilDigest], scope: Scope) -> list[PupilDigest]:
@@ -119,10 +129,20 @@ def _wanted(plans: Iterable[list[PupilDigest]]) -> list[tuple[Pupil, Attachment]
     return sorted(wanted.values(), key=lambda pair: pair[0].id)
 
 
-def _files(plan: list[PupilDigest], downloads: dict[str, File]) -> list[File]:
-    """One file per path: a letter named by two facts is sent once."""
-    paths = dict.fromkeys(attachment.path for digest in plan for attachment in _attachments(digest))
-    return [downloads[path] for path in paths if path in downloads]
+def _files(digest: PupilDigest, downloads: dict[str, File]) -> list[File]:
+    """One file per path, captioned by the fact that named it.
+
+    A letter two facts name is sent once, under the first of them.
+    """
+    captions: dict[str, str] = {}
+    for item in digest.items:
+        for attachment in item.files:
+            captions.setdefault(attachment.path, item.title)
+    return [
+        downloads[path].model_copy(update={"caption": caption})
+        for path, caption in captions.items()
+        if path in downloads
+    ]
 
 
 def _attachments(digest: PupilDigest) -> list[Attachment]:

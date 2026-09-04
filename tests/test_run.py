@@ -136,7 +136,10 @@ def test_a_later_run_reports_only_the_new_fact(
 
     assert "Nytt" in text
     assert "Veckobrev" not in text, "already reported"
-    assert sent == [("InfoMentor sön 17 aug · Alva 1", text, [])]
+    ((subject, body, files),) = sent
+    assert subject == "Alva · sön 17 aug · 1 nytt"
+    assert files == []
+    assert text == f"{subject}\n\n{body}", "the log holds the message as it was sent"
 
 
 def test_each_child_is_its_own_message(
@@ -156,8 +159,8 @@ def test_each_child_is_its_own_message(
     run(settings, TODAY)
 
     (alva_subject, alva_body, _), (noah_subject, noah_body, _) = sent
-    assert alva_subject == "InfoMentor sön 17 aug · Alva 1"
-    assert noah_subject == "InfoMentor sön 17 aug · Noah 1"
+    assert alva_subject == "Alva · sön 17 aug · 1 nytt"
+    assert noah_subject == "Noah · sön 17 aug · 1 nytt"
     assert "Veckobrev" in alva_body
     assert "Fritidsbrev" not in alva_body, "a message holds one child"
     assert "Fritidsbrev" in noah_body
@@ -192,8 +195,8 @@ def test_a_sample_sends_one_fact_per_section_and_remembers_none(
 
     text = run(settings, TODAY, scope=Scope.SAMPLE)
 
-    ((_, body, files),) = sent
-    assert body == text
+    ((subject, body, files),) = sent
+    assert text == f"{subject}\n\n{body}"
     assert text.count("•") == 2, "one line under Att göra, one under Nytt"
     assert "mån 18 aug: tider saknas" in text
     assert "tis 19 aug" not in text
@@ -212,7 +215,7 @@ def test_a_dry_run_prints_without_sending_or_remembering(
 
     text = run(settings, TODAY, dry_run=True)
 
-    assert "Veckobrev" in text
+    assert text == "Alva · sön 17 aug · 1 nytt\n\nNytt:\n• Veckobrev", "as it would be sent"
     assert sent == []
     assert not settings.state_file.exists()
 
@@ -244,6 +247,7 @@ def test_the_files_of_a_reported_fact_travel_with_the_digest(
     ((_, _, files),) = sent
     assert [file.name for file in files] == ["brev.pdf"]
     assert files[0].content == b"bytes"
+    assert files[0].caption == "Veckobrev", "the file carries the fact that named it"
 
 
 def test_a_file_both_children_have_is_downloaded_once(
@@ -333,8 +337,8 @@ def test_a_new_child_is_seeded_while_the_known_one_reports(
     )
     text = run(settings, TODAY)
 
-    assert "=== Alva ===" in text
-    assert "=== Noah ===" not in text, "a first sight of a child seeds instead of flooding"
+    assert "Alva" in text
+    assert "Noah" not in text, "a first sight of a child seeds instead of flooding"
     assert Store.load(settings.state_file).keys("telegram", noah.id) == {"news:1", "news:2"}
 
 
@@ -402,8 +406,8 @@ def test_a_refused_child_comes_back_while_the_other_stays_quiet(
     assert "Fritidsbrev" in text
     assert "Veckobrev" not in text, "the child that arrived stays quiet"
     assert [subject for subject, _, _ in telegram.messages] == [
-        "InfoMentor sön 17 aug · Alva 1",
-        "InfoMentor sön 17 aug · Noah 1",
+        "Alva · sön 17 aug · 1 nytt",
+        "Noah · sön 17 aug · 1 nytt",
     ]
 
 

@@ -53,10 +53,15 @@ class Attachment(Model):
 
 
 class File(Model):
-    """A downloaded attachment, ready to send."""
+    """A downloaded attachment, ready to send.
+
+    The caption is the fact that named the file, so a photo or a letter arrives
+    with the words that go with it. It falls back to the file name.
+    """
 
     name: str
     content: bytes
+    caption: str = ""
 
 
 class LearnlogEntry(Model):
