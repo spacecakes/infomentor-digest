@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from infomentor_digest.api import (
+    Attachment,
     CalendarEvent,
     Conference,
     Day,
@@ -20,6 +21,7 @@ class FakeSource:
     news_items: list[NewsItem] = field(default_factory=list)
     learnlog_entries: list[LearnlogEntry] = field(default_factory=list)
     events: list[CalendarEvent] = field(default_factory=list)
+    event_attachments: dict[int, list[Attachment]] = field(default_factory=dict)
     registration_days: list[Day] = field(default_factory=list)
     current_conference: Conference | None = None
     slots: int = 0
@@ -40,6 +42,9 @@ class FakeSource:
     def calendar(self, start: date, end: date) -> list[CalendarEvent]:
         self.ranges.append((start, end))
         return self.events
+
+    def event_files(self, event: CalendarEvent) -> list[Attachment]:
+        return self.event_attachments.get(event.id, []) if event.has_attachments else []
 
     def days(self) -> list[Day]:
         return self.registration_days

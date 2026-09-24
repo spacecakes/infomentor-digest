@@ -4,6 +4,7 @@ import pytest
 from fake import FakeSource
 
 from infomentor_digest.api import (
+    Attachment,
     CalendarEvent,
     Conference,
     Day,
@@ -404,6 +405,44 @@ def test_collect_leaves_out_the_images_a_mail_editor_pastes() -> None:
 
     assert [file.filename for file in item.files] == ["brev.pdf"]
     assert item.body == "Bilaga: brev.pdf"
+
+
+def test_collect_carries_the_files_hung_on_an_event() -> None:
+    """A veckobrev is posted as a calendar entry, and the letter is its PDF."""
+    source = FakeSource(
+        events=[
+            CalendarEvent.model_validate(
+                {
+                    "id": 3,
+                    "title": "Veckobrev v. 38",
+                    "text": "<p>Trevlig helg!</p>",
+                    "startDate": "2025-08-22",
+                    "hasAttachments": True,
+                }
+            )
+        ],
+        event_attachments={
+            3: [Attachment.model_validate({"title": "brev.pdf", "url": "/Resources/Resource/9"})]
+        },
+    )
+
+    (item,) = collect(source, PUPIL, TODAY, days_ahead=21).items
+
+    assert [file.filename for file in item.files] == ["brev.pdf"]
+    assert item.body == "Trevlig helg!\nBilaga: brev.pdf"
+
+
+def test_collect_asks_for_no_files_when_an_event_has_none() -> None:
+    source = FakeSource(
+        events=[
+            CalendarEvent.model_validate({"id": 3, "title": "Skolfoto", "startDate": "2025-08-24"})
+        ],
+        event_attachments={3: [Attachment.model_validate({"title": "brev.pdf", "url": "/9"})]},
+    )
+
+    (item,) = collect(source, PUPIL, TODAY, days_ahead=21).items
+
+    assert item.files == []
 
 
 def test_collect_leaves_out_an_event_a_news_post_already_names() -> None:

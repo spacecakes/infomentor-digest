@@ -8,6 +8,7 @@ from typing import Any, cast
 import pytest
 
 from infomentor_digest.api import (
+    BASE,
     Attachment,
     CalendarEvent,
     Conference,
@@ -39,6 +40,23 @@ def hub_answering(response: FakeResponse) -> tuple[Hub, list[str]]:
         return response
 
     page = SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(get=get)))
+    return Hub(page=cast(Any, page)), asked
+
+
+def hub_posting(payload: object) -> tuple[Hub, list[tuple[str, dict[str, object]]]]:
+    """A hub whose browser answers every POST with `payload` and records the call."""
+    asked: list[tuple[str, dict[str, object]]] = []
+
+    def post(url: str, data: dict[str, object]) -> SimpleNamespace:
+        asked.append((url, data))
+        return SimpleNamespace(
+            ok=True,
+            url=url,
+            headers={"content-type": "application/json; charset=utf-8"},
+            json=lambda: payload,
+        )
+
+    page = SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(post=post)))
     return Hub(page=cast(Any, page)), asked
 
 
@@ -156,6 +174,29 @@ def test_calendar_event_reads_the_hub_payload() -> None:
 
     assert event.start_date == date(2025, 8, 24)
     assert event.start_time == "09:00"
+
+
+def test_event_files_reads_the_attachments_of_an_entry() -> None:
+    """`getentries` only says that an entry has files, so the list takes its own call."""
+    hub, asked = hub_posting(
+        [{"fileType": ".pdf", "url": "/Resources/Resource/Download/18", "title": "brev.pdf"}]
+    )
+    event = CalendarEvent.model_validate(
+        {"id": 7, "startDate": "2025-09-18", "hasAttachments": True}
+    )
+
+    (attachment,) = hub.event_files(event)
+
+    assert attachment.filename == "brev.pdf"
+    assert asked == [(f"{BASE}/calendarv2/calendarv2/getattachments", {"id": 7})]
+
+
+def test_event_files_asks_nothing_for_an_entry_without_files() -> None:
+    hub, asked = hub_posting([{"title": "brev.pdf", "url": "/18"}])
+    event = CalendarEvent.model_validate({"id": 7, "startDate": "2025-09-18"})
+
+    assert hub.event_files(event) == []
+    assert asked == []
 
 
 @pytest.mark.parametrize(

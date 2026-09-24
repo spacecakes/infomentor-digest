@@ -57,6 +57,7 @@ class Source(Protocol):
     def news(self) -> list[NewsItem]: ...
     def learnlog(self) -> list[LearnlogEntry]: ...
     def calendar(self, start: date, end: date) -> list[CalendarEvent]: ...
+    def event_files(self, event: CalendarEvent) -> list[Attachment]: ...
     def days(self) -> list[Day]: ...
     def conference(self) -> Conference | None: ...
     def meeting_slots(self) -> int: ...
@@ -193,19 +194,23 @@ def _calendar(
     """
     events = source.calendar(today, today + timedelta(days=days_ahead))
     dated = [
-        (event.start_date, _event(event)) for event in events if _plain(event.title) not in posted
+        (event.start_date, _event(event, _real(source.event_files(event))))
+        for event in events
+        if _plain(event.title) not in posted
     ]
     dated += [(day.date, _closed_day(day)) for day in days if day.closed]
     return [item for _, item in sorted(dated, key=lambda pair: pair[0])]
 
 
-def _event(event: CalendarEvent) -> Item:
+def _event(event: CalendarEvent, files: list[Attachment]) -> Item:
+    """An event and whatever hangs on it: a veckobrev is its PDF, not its title."""
     return Item(
         key=f"event:{event.id}:{event.start_date}",
         section=Section.CALENDAR,
         title=f"{label(event.start_date)}: {event.title}"
         + _hours(event.start_time, event.end_time),
-        body=_body(event.text),
+        body=_body(event.text, _named(files)),
+        files=files,
     )
 
 

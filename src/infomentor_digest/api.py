@@ -91,6 +91,7 @@ class CalendarEvent(Model):
     start_time: str | None = Field(None, alias="startTime")
     end_time: str | None = Field(None, alias="endTime")
     all_day: bool = Field(False, alias="isAllDayEvent")
+    has_attachments: bool = Field(False, alias="hasAttachments")
 
 
 class Day(Model):
@@ -171,6 +172,18 @@ class Hub:
             {"startDate": _slashed(start), "endDate": _slashed(end)},
         )
         return [CalendarEvent.model_validate(row) for row in _list(payload)]
+
+    def event_files(self, event: CalendarEvent) -> list[Attachment]:
+        """The files hung on a calendar entry.
+
+        An entry lists no files of its own: `getentries` only says whether it
+        has any, and the list itself takes a second call. A veckobrev is often
+        nothing but its PDF, so the entry without its files says nothing.
+        """
+        if not event.has_attachments:
+            return []
+        payload = self._post("/calendarv2/calendarv2/getattachments", {"id": event.id})
+        return [Attachment.model_validate(row) for row in _list(payload)]
 
     def days(self) -> list[Day]:
         """Attendance times for the current week."""
