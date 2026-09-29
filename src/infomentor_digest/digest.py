@@ -43,6 +43,8 @@ MONTHS = (
 BODY_LIMIT = 1200
 PHOTO_LIMIT = 10
 """How many photos of one Lärlogg entry are sent. A longer burst floods the chat."""
+OPEN_ENDED = 8 * 60
+"""Minutes from which a range stops naming a time to be somewhere and only means the day."""
 
 LINK = re.compile(r'(?i)<a\b[^>]*\bhref="([^"]*)"[^>]*>(.*?)</a>', re.S)
 BLOCK_END = re.compile(r"(?i)<br\s*/?>|</(?:p|li|div|h[1-6]|ul|ol|tr|td|th|blockquote)>")
@@ -99,7 +101,7 @@ def collect(source: Source, pupil: Pupil, today: date, days_ahead: int) -> Pupil
     posts = source.news()
     items = [
         *_todo(source, today, days),
-        *_calendar(source, today, days_ahead, days, {_plain(post.title) for post in posts}),
+        *_calendar(source, today, days_ahead, days, _posted(posts)),
         *_news(posts, source.learnlog()),
     ]
     return PupilDigest(pupil=pupil, items=items)
@@ -189,26 +191,53 @@ def _calendar(
 ) -> list[Item]:
     """Events and closed days in one date order, so the section reads as a timeline.
 
-    An event a news post already names is left out: the post carries the whole
-    message, and the same words twice read as two things.
+    An event the news already carries is left out: the post carries the whole
+    message, and the same words twice read as two things. An entry that brings
+    nothing but a letter the news brought too is the same letter, however
+    differently the two were titled.
     """
     events = source.calendar(today, today + timedelta(days=days_ahead))
-    dated = [
-        (event.start_date, _event(event, _real(source.event_files(event))))
-        for event in events
-        if _plain(event.title) not in posted
-    ]
+    dated: list[tuple[date, Item]] = []
+    for event in events:
+        if _plain(event.title) in posted:
+            continue
+        files = _real(source.event_files(event))
+        if files and all(_plain(file.filename) in posted for file in files):
+            continue
+        dated.append((event.start_date, _event(event, files, today)))
     dated += [(day.date, _closed_day(day)) for day in days if day.closed]
     return [item for _, item in sorted(dated, key=lambda pair: pair[0])]
 
 
-def _event(event: CalendarEvent, files: list[Attachment]) -> Item:
-    """An event and whatever hangs on it: a veckobrev is its PDF, not its title."""
+def _posted(posts: list[NewsItem]) -> set[str]:
+    """What the news section already shows: the titles it prints and the files it sends.
+
+    A school that publishes a letter as news and as a calendar entry both gives
+    the two their own titles and hangs its own copy of the file on each, so the
+    file name catches the pair the titles miss.
+    """
+    return {_plain(post.title) for post in posts} | {
+        _plain(file.filename) for post in posts for file in _real(post.attachments)
+    }
+
+
+def _event(event: CalendarEvent, files: list[Attachment], today: date) -> Item:
+    """An entry and whatever hangs on it: a letter is its file, not its title.
+
+    An entry whose day has come and that carries a file has no date left to
+    plan for: it is something to read, so it reads with the news, and the
+    clock the calendar hung on it means nothing. An entry still ahead keeps
+    its place in the timeline whether or not it brings a file with it.
+
+    The date stays in the title either way, so the section moves where a fact
+    is read and never whether it is reported.
+    """
+    letter = bool(files) and event.start_date <= today
     return Item(
         key=f"event:{event.id}:{event.start_date}",
-        section=Section.CALENDAR,
+        section=Section.NEWS if letter else Section.CALENDAR,
         title=f"{label(event.start_date)}: {event.title}"
-        + _hours(event.start_time, event.end_time),
+        + ("" if letter else _hours(event.start_time, event.end_time)),
         body=_body(event.text, _named(files)),
         files=files,
     )
@@ -295,9 +324,35 @@ def _plain(title: str) -> str:
 
 
 def _hours(start: str | None, end: str | None) -> str:
+    """When to be there. A range covering most of a day names no such time, so it goes.
+
+    A calendar is drawn by dragging, and a box drawn over an afternoon and the
+    evening after it says only that the day is the day.
+    """
     if not start:
         return ""
-    return f" {start}-{end}" if end else f" {start}"
+    if not end:
+        return f" {start}"
+    span = _span(start, end)
+    return "" if span is not None and span >= OPEN_ENDED else f" {start}-{end}"
+
+
+def _span(start: str, end: str) -> int | None:
+    """The minutes between two clocks, or nothing when either is not one.
+
+    A clock the Hub writes some other way leaves the range as it was written:
+    unread is not the same as long.
+    """
+    try:
+        return _minutes(end) - _minutes(start)
+    except ValueError:
+        return None
+
+
+def _minutes(clock: str) -> int:
+    """`13:45` as minutes into its day."""
+    hours, _, rest = clock.partition(":")
+    return int(hours) * 60 + int(rest)
 
 
 def _body(html: str, extra: str = "") -> str:

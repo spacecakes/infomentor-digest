@@ -9,15 +9,19 @@ Unofficial. No connection to InfoMentor.
 
 ## What it reports
 
-Each child gets its own message, so the notification names the child it is about. The sections run in reading order: what needs you, then what happens, then what is only worth knowing. No AI and no paid service. The digest is grouped plain text, and the endpoint a fact came from decides its section.
+Each child gets its own message, so the notification names the child it is about. The sections run in reading order: what needs you, then what happens, then what is only worth knowing. No AI and no paid service. The digest is grouped plain text.
 
 | Section  | Content                                                                                  |
 | -------- | ---------------------------------------------------------------------------------------- |
 | Att göra | missing attendance times, an open utvecklingssamtal, meeting times to book, homework due |
-| Kalender | events for the next weeks and days the school closes, in one date order                  |
-| Nytt     | news posts with their full text, Lärlogg entries with their photos                       |
+| Kalender | what is still ahead and days the school closes, in one date order                        |
+| Nytt     | news posts, Lärlogg entries with their photos, and letters, with their full text         |
 
 A section prints only when it has something under it. Attachments like photos and PDFs are downloaded and forwarded.
+
+A school decides for itself where it puts a thing, so the section a fact reads under follows what the fact is, not the module it came from. A calendar entry whose day has come and that carries a file is a letter — nothing is left to plan for, so it reads with the news, without the hours someone drew around it. An entry still ahead keeps its place in the timeline, file or no file, because the date is the point. Either way the date stays in the line and the file is sent: where a fact reads never decides whether it is reported.
+
+The same letter often arrives twice, posted once as news and once in the calendar under another title. It is reported once. Two entries are the same letter when they carry the same file name, which is what the two copies keep in common.
 
 ## Quiet by design
 

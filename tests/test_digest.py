@@ -407,6 +407,37 @@ def test_collect_leaves_out_the_images_a_mail_editor_pastes() -> None:
     assert item.body == "Bilaga: brev.pdf"
 
 
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        ("17:30", "18:45", " 17:30-18:45"),
+        ("09:00", "15:00", " 09:00-15:00"),
+        ("07:45", "23:45", ""),
+        ("07:00", "17:00", ""),
+        ("15:30", "23:00", " 15:30-23:00"),
+        ("08:00", None, " 08:00"),
+        (None, None, ""),
+        ("heldag", "23:45", " heldag-23:45"),
+    ],
+)
+def test_hours_name_a_time_to_be_there_or_nothing(
+    start: str | None, end: str | None, expected: str
+) -> None:
+    """A box dragged over a whole day says only: that day. A shorter one is a time.
+
+    The afternoon-to-midnight box a letter carries is not caught here and does
+    not need to be: a letter drops its clock by being a letter.
+    """
+    event = CalendarEvent.model_validate(
+        {"id": 1, "title": "Möte", "startDate": "2025-09-01", "startTime": start, "endTime": end}
+    )
+    source = FakeSource(events=[event])
+
+    (item,) = collect(source, PUPIL, TODAY, days_ahead=21).items
+
+    assert item.title == f"mån 1 sep: Möte{expected}"
+
+
 def test_collect_carries_the_files_hung_on_an_event() -> None:
     """A veckobrev is posted as a calendar entry, and the letter is its PDF."""
     source = FakeSource(
@@ -443,6 +474,119 @@ def test_collect_asks_for_no_files_when_an_event_has_none() -> None:
     (item,) = collect(source, PUPIL, TODAY, days_ahead=21).items
 
     assert item.files == []
+
+
+def test_collect_reads_a_letter_the_calendar_carries_with_the_news() -> None:
+    """A letter posted as a calendar entry has no date left to plan for."""
+    source = FakeSource(
+        events=[
+            CalendarEvent.model_validate(
+                {
+                    "id": 3,
+                    "title": "Veckobrev v.34",
+                    "startDate": TODAY.isoformat(),
+                    "startTime": "15:30",
+                    "endTime": "23:00",
+                    "hasAttachments": True,
+                }
+            )
+        ],
+        event_attachments={3: [Attachment.model_validate({"title": "brev.pdf", "url": "/9"})]},
+    )
+
+    (item,) = collect(source, PUPIL, TODAY, days_ahead=21).items
+
+    assert item.section is Section.NEWS
+    assert item.title == "sön 17 aug: Veckobrev v.34", "a letter is not an hour to be somewhere"
+    assert [file.filename for file in item.files] == ["brev.pdf"]
+
+
+def test_collect_keeps_a_coming_event_in_the_timeline_though_it_brings_a_file() -> None:
+    """Another school hangs the agenda on the meeting. The date is still the point."""
+    source = FakeSource(
+        events=[
+            CalendarEvent.model_validate(
+                {
+                    "id": 3,
+                    "title": "Föräldramöte",
+                    "startDate": "2025-08-24",
+                    "startTime": "17:30",
+                    "endTime": "18:45",
+                    "hasAttachments": True,
+                }
+            )
+        ],
+        event_attachments={
+            3: [Attachment.model_validate({"title": "dagordning.pdf", "url": "/9"})]
+        },
+    )
+
+    (item,) = collect(source, PUPIL, TODAY, days_ahead=21).items
+
+    assert item.section is Section.CALENDAR
+    assert item.title == "sön 24 aug: Föräldramöte 17:30-18:45"
+    assert [file.filename for file in item.files] == ["dagordning.pdf"]
+
+
+def test_collect_leaves_out_an_event_that_only_repeats_a_posted_letter() -> None:
+    """The school posts one veckobrev twice, under two titles, with one file name."""
+    source = FakeSource(
+        news_items=[
+            NewsItem.model_validate(
+                {
+                    "id": 1,
+                    "title": "Veckobrevet V39",
+                    "attachments": [{"title": "veckobrev.pdf", "url": "/news/9"}],
+                }
+            )
+        ],
+        events=[
+            CalendarEvent.model_validate(
+                {
+                    "id": 3,
+                    "title": "Fritids veckobrev V39",
+                    "startDate": "2025-08-22",
+                    "hasAttachments": True,
+                }
+            )
+        ],
+        event_attachments={
+            3: [Attachment.model_validate({"title": "veckobrev.pdf", "url": "/calendar/9"})]
+        },
+    )
+
+    (item,) = collect(source, PUPIL, TODAY, days_ahead=21).items
+
+    assert item.key == "news:1", "the letter is sent once, not once per module"
+
+
+def test_collect_keeps_an_event_that_brings_a_file_the_news_did_not() -> None:
+    source = FakeSource(
+        news_items=[
+            NewsItem.model_validate(
+                {
+                    "id": 1,
+                    "title": "Veckobrevet",
+                    "attachments": [{"title": "veckobrev.pdf", "url": "/news/9"}],
+                }
+            )
+        ],
+        events=[
+            CalendarEvent.model_validate(
+                {"id": 3, "title": "Möte", "startDate": "2025-08-22", "hasAttachments": True}
+            )
+        ],
+        event_attachments={
+            3: [
+                Attachment.model_validate({"title": "veckobrev.pdf", "url": "/calendar/9"}),
+                Attachment.model_validate({"title": "anteckningar.pdf", "url": "/calendar/10"}),
+            ]
+        },
+    )
+
+    keys = [item.key for item in collect(source, PUPIL, TODAY, days_ahead=21).items]
+
+    assert keys == ["event:3:2025-08-22", "news:1"]
 
 
 def test_collect_leaves_out_an_event_a_news_post_already_names() -> None:
