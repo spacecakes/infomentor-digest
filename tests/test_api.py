@@ -1,5 +1,6 @@
 """The models read live payloads, so every case here is a shape the Hub sends."""
 
+import json
 from dataclasses import dataclass
 from datetime import date
 from types import SimpleNamespace
@@ -43,9 +44,15 @@ def hub_answering(response: FakeResponse) -> tuple[Hub, list[str]]:
     return Hub(page=cast(Any, page)), asked
 
 
-def hub_posting(payload: object) -> tuple[Hub, list[tuple[str, dict[str, object]]]]:
-    """A hub whose browser answers every POST with `payload` and records the call."""
+def hub_posting(
+    payload: object, raw: bytes | None = None
+) -> tuple[Hub, list[tuple[str, dict[str, object]]]]:
+    """A hub whose browser answers every POST with `payload` and records the call.
+
+    `raw` stands in for the body the Hub sends, when it is not `payload` as JSON.
+    """
     asked: list[tuple[str, dict[str, object]]] = []
+    body = json.dumps(payload).encode() if raw is None else raw
 
     def post(url: str, data: dict[str, object]) -> SimpleNamespace:
         asked.append((url, data))
@@ -53,7 +60,8 @@ def hub_posting(payload: object) -> tuple[Hub, list[tuple[str, dict[str, object]
             ok=True,
             url=url,
             headers={"content-type": "application/json; charset=utf-8"},
-            json=lambda: payload,
+            body=lambda: body,
+            json=lambda: json.loads(body),
         )
 
     page = SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(post=post)))
@@ -235,6 +243,12 @@ def test_day_hours_read_the_registered_times() -> None:
 )
 def test_conference_needs_the_parent_until_it_is_completed(status: str, needs_parent: bool) -> None:
     assert Conference(id=1, status=status).needs_parent is needs_parent
+
+
+def test_conference_is_none_when_the_hub_answers_an_empty_body() -> None:
+    hub, _ = hub_posting(None, raw=b"")
+
+    assert hub.conference() is None
 
 
 def test_task_summary_reads_the_counts() -> None:

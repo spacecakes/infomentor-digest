@@ -243,7 +243,7 @@ def _left_out(attachment: Attachment, reason: str) -> None:
 def _read(response: APIResponse) -> object:
     if not response.ok:
         raise RuntimeError(f"{response.status} from {response.url}")
-    if "json" not in response.headers.get("content-type", ""):
+    if "json" not in response.headers.get("content-type", "") or not response.body().strip():
         return {}
     return response.json()
 
